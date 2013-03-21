@@ -131,3 +131,6 @@ xcuserdata
 # This ensures the latest dependencies are used.
 Pods/
 Podfile.lock
+
+#remove all xcode stuff for this project
+*.xcodeproj/
