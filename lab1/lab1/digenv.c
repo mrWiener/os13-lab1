@@ -8,31 +8,12 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
+#include <unistd.h>
+#include <sys/types.h>
 
-
-//gets the value of a given env variable name.
-//param name: is the name of the env variable name to get the value of
-//param envp: the env array given at startup
-//return: a pointer to the value. NULL if not found or error.
-const char *getEnvValue(char *name, const char **envp) {
-    if(name == NULL || envp == NULL) {
-        return NULL;
-    }
-    
-    char *pos = NULL;
-    for (int i = 0; envp[i] != NULL; i++) {
-        if((pos = strstr(envp[i], name)) != NULL) {
-            //we have found the "name" env variable. Now read the value.
-            
-            //point the pos pointer x chars ahead. x = length of name + 1 (since we wanna start read after '=' sign)
-            pos += strlen(name) + 1;
-            return pos; //return a pointer to the beginning of the env value of the env variable "name"
-        }
-    }
-    
-    return NULL;
-}
+#define STANDARD_INPUT     0
+#define STANDARD_OUTPUT    1
+#define STANDARD_ERROR     2
 
 //gets name of the pager to use. First tries to read env PAGER, and then falls back to less.
 //return: the value specified in env[PAGER]. Otherwise less.
@@ -50,11 +31,57 @@ const char *getPager() {
     return pager;
 }
 
+//print the specified error and exists the program
+void error(char *error) {
+    perror(error);
+    exit(1);
+}
+
 //program main entry point
 int main(int argc, const char * argv[], const char **envp) {
-    int i;
-    
+    //get the pager to use
     const char *pager = getPager();
+    
+    //setup pipeline for printenv call
+    int     fd[2];
+    pid_t   childpid;
+    
+    if(pipe(fd) == -1) {
+        //unable to setup pipe.
+        error("pipe init failed: printenv");
+    }
+    
+    if((childpid = fork()) == -1) {
+        //unable to start the child process
+        error("fork failed: printenv");
+    }
+    
+    if(childpid == 0) {
+        //child area.
+        
+        //child will only write to pipe, so close output fd[1]
+        close(fd[0]);
+        
+        dup2(fd[1], STANDARD_OUTPUT);
+        
+        //all env variables should be obtained and printed to pipe.
+        if(execlp("printenv", "printenv") == -1) {
+            error("failed to execute: printenv");
+        }
+        
+        close(fd[1]);
+    } else {
+        //parent area. childpid now contains the process id of the child.
+        
+        //parent will only read from pipe, so close input fd[0]
+        close(fd[1]);
+        
+        char readbuffer[1024];
+        int nbytes = read(fd[0], readbuffer, sizeof(readbuffer));
+        close(fd[0]);
+        printf("LOL: %s", readbuffer);
+    }
+
 
     return 0;
 }
