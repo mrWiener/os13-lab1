@@ -34,14 +34,27 @@ const char *getEnvValue(char *name, const char **envp) {
     return NULL;
 }
 
+//gets name of the pager to use. First tries to read env PAGER, and then falls back to less.
+//return: the value specified in env[PAGER]. Otherwise less.
+const char *getPager() {
+    //read which pager to use from users env.
+    const char *pager = getenv("PAGER");
+    
+    //if no specified pager is set, less should be used.
+    if(pager == NULL) {
+        pager = "less";
+        
+        //TODO: check if less exists on system? In that case use more.
+    }
+    
+    return pager;
+}
+
 //program main entry point
 int main(int argc, const char * argv[], const char **envp) {
     int i;
-    for (i = 0; envp[i] != NULL; i++) {
-        printf("%2d:%s\n", i, envp[i]);
-    }
     
-    printf("\n\nPATH: %s", getEnvValue("PATH", envp));
+    const char *pager = getPager();
 
     return 0;
 }
