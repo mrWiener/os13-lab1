@@ -11,9 +11,12 @@
 #include <unistd.h>
 #include <sys/types.h>
 
-#define STANDARD_INPUT     0
-#define STANDARD_OUTPUT    1
-#define STANDARD_ERROR     2
+#define STANDARD_INPUT      0
+#define STANDARD_OUTPUT     1
+#define STANDARD_ERROR      2
+
+#define PIPE_IN             0
+#define PIPE_OUT            1
 
 //gets name of the pager to use. First tries to read env PAGER, and then falls back to less.
 //return: the value specified in env[PAGER]. Otherwise less.
@@ -59,10 +62,15 @@ int main(int argc, const char * argv[], const char **envp) {
     if(childpid == 0) {
         //child area.
         
-        //child will only write to pipe, so close output fd[1]
-        close(fd[0]);
+        //child will only write to pipe, so close input fd
+        if(close(fd[PIPE_IN]) == -1) {
+            error("failed to close input fd: printenv");
+        }
         
-        dup2(fd[1], STANDARD_OUTPUT);
+        //close stdout and duplicate it the output side of stdout to fd output
+        if(dup2(STANDARD_OUTPUT, fd[PIPE_OUT]) == -1) {
+            error("failed to dup2: printenv");
+        }
         
         //all env variables should be obtained and printed to pipe.
         if(execlp("printenv", "printenv") == -1) {
@@ -73,13 +81,15 @@ int main(int argc, const char * argv[], const char **envp) {
     } else {
         //parent area. childpid now contains the process id of the child.
         
-        //parent will only read from pipe, so close input fd[0]
-        close(fd[1]);
+        //parent will only read from pipe, so close output fd
+        if(close(fd[PIPE_OUT]) == -1) {
+            error("failed to close output fd: printenv");
+        }
         
         char readbuffer[1024];
-        int nbytes = read(fd[0], readbuffer, sizeof(readbuffer));
-        close(fd[0]);
-        printf("LOL: %s", readbuffer);
+        int nbytes = read(fd[PIPE_IN], readbuffer, sizeof(readbuffer));
+        close(fd[PIPE_IN]);
+        printf("Result: %s", readbuffer);
     }
 
 
