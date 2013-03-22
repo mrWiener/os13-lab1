@@ -18,6 +18,10 @@
 #define PIPE_IN             0
 #define PIPE_OUT            1
 
+//a macro to print better error messages and exit the process on error.
+//when parameter r == -1 the process gets killed and a error message is presented.
+#define CHECK(r) { if(r == -1) {perror(""); fprintf(stderr, "line: %d.\n", __LINE__); exit(1);} }
+
 //gets name of the pager to use. First tries to read env PAGER, and then falls back to less.
 //return: the value specified in env[PAGER]. Otherwise less.
 const char *getPager() {
@@ -34,64 +38,93 @@ const char *getPager() {
     return pager;
 }
 
-//print the specified error and exists the program
-void error(char *error) {
-    perror(error);
-    exit(1);
-}
-
 //program main entry point
 int main(int argc, const char * argv[], const char **envp) {
     //get the pager to use
     const char *pager = getPager();
     
-    //setup pipeline for printenv call
-    int     fd[2];
-    pid_t   childpid;
+    int     fd[2];      //pipe for child 1
+    pid_t   pid;        //child process id
+    int     status;     //will be used when calling wait
     
-    if(pipe(fd) == -1) {
-        //unable to setup pipe.
-        error("pipe init failed: printenv");
-    }
+    //setup pipe for child 1
+    CHECK(pipe(fd));
     
-    if((childpid = fork()) == -1) {
-        //unable to start the child process
-        error("fork failed: printenv");
-    }
+    //create child process 1
+    CHECK((pid = fork()))
     
-    if(childpid == 0) {
+    if(pid == 0) {
         //child area.
         
-        //child will only write to pipe, so close input fd
-        if(close(fd[PIPE_IN]) == -1) {
-            error("failed to close input fd: printenv");
-        }
+        //child will only write to pipe, so close input pipe
+        CHECK(close(fd[PIPE_IN]));
         
-        //close stdout and duplicate it the output side of stdout to fd output
-        if(dup2(STANDARD_OUTPUT, fd[PIPE_OUT]) == -1) {
-            error("failed to dup2: printenv");
-        }
+        //make alias stdout -> output pipe. this closes stdout. When exec prints to stdout it instead prints to child 1 output pipe.
+        CHECK(dup2(fd[PIPE_OUT], STANDARD_OUTPUT));
         
-        //all env variables should be obtained and printed to pipe.
-        if(execlp("printenv", "printenv") == -1) {
-            error("failed to execute: printenv");
-        }
+        //obtain env variables. this prints to stdout which in turns prints to output pipe.
+        CHECK(execlp("printenv", "printenv", '\0'));
         
-        close(fd[1]);
+        //we are now done with the output pipe.
+        CHECK(close(fd[PIPE_OUT]));
     } else {
         //parent area. childpid now contains the process id of the child.
         
-        //parent will only read from pipe, so close output fd
-        if(close(fd[PIPE_OUT]) == -1) {
-            error("failed to close output fd: printenv");
-        }
+        //wait for child process 1 to finish.
+        wait(&status);
+        CHECK(status);
         
-        char readbuffer[1024];
-        int nbytes = read(fd[PIPE_IN], readbuffer, sizeof(readbuffer));
-        close(fd[PIPE_IN]);
-        printf("Result: %s", readbuffer);
+        //parent will only read from pipe, so close output pipe
+        CHECK(close(fd[PIPE_OUT]));
+        
+        //variables to be used for child 2
+        int fd2[2];     //pipe for child 2
+        pid_t pid2;     //process id for child 2
+        
+        //setup pipe for child 2
+        CHECK(pipe(fd2));
+        
+        //create child process 2
+        CHECK((pid2 = fork()));
+        
+        if(pid2 == 0) {
+            //child area.
+            
+            //child 2 will be reading from child 1 input pipe, so close child 2 input pipe
+            CHECK(close(fd2[PIPE_IN]));
+            
+            //make alias stdin -> child 1 input pipe. This closes stdin. When exec reads from stdin it will instead read from child 1 input pipe.
+            CHECK(dup2(fd[PIPE_IN], STANDARD_INPUT));
+            
+            //make alias stdout -> output pipe. this closes stdout. When exec prints to stdout it instead prints to child 2 output pipe.
+            CHECK(dup2(fd2[PIPE_OUT], STANDARD_OUTPUT));
+            
+            //sort the env variables by using command sort.
+            CHECK(execlp("sort", "sort", '\0'));
+            
+            //we are done writing to child 2 output pipe. close it.
+            CHECK(close(fd2[PIPE_OUT]));
+        } else {
+            //parent area. childpid now contains the process id of the child.
+            
+            //wait for child 2 process to finish.
+            wait(&status);
+            CHECK(status);
+            
+            //we will only be reading from child 2 so close child 2 output pipe.
+            CHECK(close(fd2[PIPE_OUT]));
+            
+            //read from child 2 input pipe.
+            char readbuffer[1024];
+            read(fd2[PIPE_IN], readbuffer, sizeof(readbuffer));
+            
+            //done reading. close child 2 input pipe.
+            CHECK(close(fd2[PIPE_IN]));
+            
+            //print result to stdout.
+            printf("%s", readbuffer);
+        }
     }
-
 
     return 0;
 }
