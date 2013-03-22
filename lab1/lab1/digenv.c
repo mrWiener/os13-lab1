@@ -47,6 +47,13 @@ int main(int argc, const char * argv[], const char **envp) {
     pid_t   pid;        //child process id
     int     status;     //will be used when calling wait
     
+    
+    char *t = (char*)argv[0];
+    char *t2 = t + 1;
+    
+    if(t2 == NULL)
+        printf("hej");
+    
     //setup pipe for child 1
     CHECK(pipe(fd));
     
@@ -99,8 +106,32 @@ int main(int argc, const char * argv[], const char **envp) {
             //make alias stdout -> output pipe. this closes stdout. When exec prints to stdout it instead prints to child 2 output pipe.
             CHECK(dup2(fd2[PIPE_OUT], STANDARD_OUTPUT));
             
-            //sort the env variables by using command sort.
-            CHECK(execlp("sort", "sort", '\0'));
+            if(argc > 1) {
+                //the user specified arguments, pass them to a grep command
+                
+                //build a custom args list to pass to grep, request memory for it
+                char **args = (char**)malloc((argc + 1) * sizeof(*args));
+                
+                //first argument should be name of program "grep"
+                args[0] = "grep"; 
+                
+                //copy the rest of the digenv arguments to the grep args
+                for (int i = 1; i < argc; ++i) {
+                    args[i] = (char*)argv[i];
+                }
+                
+                //execvp needs the array of args to be NULL terminated
+                args[argc] = NULL;
+                
+                //execute grep with the args
+                CHECK(execvp("grep", args));
+            
+                //we no longer needs the args array, so free the memory
+                free(args);
+            } else {
+                //no arguments, just pass input to output by doing a cat command (will echo input to output in this case)
+                CHECK(execlp("cat", "cat"));
+            }
             
             //we are done writing to child 2 output pipe. close it.
             CHECK(close(fd2[PIPE_OUT]));
