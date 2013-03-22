@@ -1,15 +1,16 @@
 //
-//  main.c
+//  digenv.c
 //  lab1
 //
 //  Created by Lucas Wiener & Mathias Lindblom on 3/21/13.
-//  Copyright (c) 2013 os13. All rights reserved.
 //
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/types.h>
+#include <string.h>
+#include <errno.h>
 
 #define STANDARD_INPUT      0
 #define STANDARD_OUTPUT     1
@@ -17,6 +18,16 @@
 
 #define PIPE_IN             0
 #define PIPE_OUT            1
+
+#define FALLBACK_PAGER      "less"
+#define FALLBACK_PAGER_2    "more"
+
+#define COMMAND_PRINTENV    "printenv"
+#define COMMAND_GREP        "grep"
+#define COMMAND_CAT         "cat"
+#define COMMAND_SORT        "sort"
+
+#define ENV_PAGER           "PAGER"
 
 //a macro to print better error messages and exit the process on error.
 //when parameter r == -1 the process gets killed and a error message is presented.
@@ -26,11 +37,11 @@
 //return: the value specified in env[PAGER]. Otherwise less.
 const char *getPager() {
     //read which pager to use from users env.
-    const char *pager = getenv("PAGER");
+    const char *pager = getenv(ENV_PAGER);
     
     //if no specified pager is set, less should be used.
     if(pager == NULL) {
-        pager = "less";
+        pager = FALLBACK_PAGER;
         
         //TODO: check if less exists on system? In that case use more.
     }
@@ -70,7 +81,7 @@ int main(int argc, const char * argv[], const char **envp) {
         CHECK(dup2(fd[PIPE_OUT], STANDARD_OUTPUT));
         
         //obtain env variables. this prints to stdout which in turns prints to output pipe.
-        CHECK(execlp("printenv", "printenv", '\0'));
+        CHECK(execlp(COMMAND_PRINTENV, COMMAND_PRINTENV, '\0'));
         
         //we are now done with the output pipe.
         CHECK(close(fd[PIPE_OUT]));
@@ -78,7 +89,7 @@ int main(int argc, const char * argv[], const char **envp) {
         //parent area. childpid now contains the process id of the child.
         
         //wait for child process 1 to finish.
-        wait(&status);
+        CHECK(wait(&status));
         CHECK(status);
         
         //parent will only read from pipe, so close output pipe
@@ -113,7 +124,7 @@ int main(int argc, const char * argv[], const char **envp) {
                 char **args = (char**)malloc((argc + 1) * sizeof(*args));
                 
                 //first argument should be name of program "grep"
-                args[0] = "grep"; 
+                args[0] = COMMAND_GREP;
                 
                 //copy the rest of the digenv arguments to the grep args
                 for (int i = 1; i < argc; ++i) {
@@ -124,13 +135,13 @@ int main(int argc, const char * argv[], const char **envp) {
                 args[argc] = NULL;
                 
                 //execute grep with the args
-                CHECK(execvp("grep", args));
+                CHECK(execvp(COMMAND_GREP, args));
             
                 //we no longer needs the args array, so free the memory
                 free(args);
             } else {
                 //no arguments, just pass input to output by doing a cat command (will echo input to output in this case)
-                CHECK(execlp("cat", "cat", '\0'));
+                CHECK(execlp(COMMAND_CAT, COMMAND_CAT, '\0'));
             }
             
             //we are done writing to child 2 output pipe. close it.
@@ -142,7 +153,7 @@ int main(int argc, const char * argv[], const char **envp) {
             //parent area. childpid now contains the process id of the child.
             
             //wait for child 2 process to finish.
-            wait(&status);
+            CHECK(wait(&status));
             CHECK(status);
             
             //we will only be reading from child 2 so close child 2 output pipe.
@@ -171,7 +182,7 @@ int main(int argc, const char * argv[], const char **envp) {
                 CHECK(dup2(fd3[PIPE_OUT], STANDARD_OUTPUT));
                 
                 //execute the sort command
-                execlp("sort", "sort", '\0');
+                execlp(COMMAND_SORT, COMMAND_SORT, '\0');
                 
                 //we are done writing to child 3 output pipe. close it.
                 CHECK(close(fd3[PIPE_OUT]));
@@ -182,21 +193,64 @@ int main(int argc, const char * argv[], const char **envp) {
                 //parent area
                 
                 //wait for child 3 process to finish.
-                wait(&status);
+                CHECK(wait(&status));
                 CHECK(status);
                 
-                //read from child 3 input pipe.
-                char readbuffer[1024];
-                read(fd3[PIPE_IN], readbuffer, sizeof(readbuffer));
+                //we will only be reading from child 3 so close child 3 output pipe.
+                CHECK(close(fd3[PIPE_OUT]));
                 
-                //done reading. close child 3 input pipe.
-                CHECK(close(fd3[PIPE_IN]));
+                //variables to be used for child 4
+                int fd4[2];     //pipe for child 4
+                pid_t pid4;     //process id for child 4
                 
-                //print result to stdout.
-                printf("%s", readbuffer);
+                //setup pipe for child 4
+                CHECK(pipe(fd4));
+                
+                //create child process 4
+                CHECK((pid4 = fork()));
+                
+                if(pid4 == 0) {
+                    //child area
+                    
+                    //child 4 will be reading from child 3 input pipe, so close child 4 input pipe
+                    CHECK(close(fd4[PIPE_IN]));
+                    
+                    //make alias stdin -> child 3 input pipe. This closes stdin. When exec reads from stdin it will instead read from child 3 input pipe.
+                    CHECK(dup2(fd3[PIPE_IN], STANDARD_INPUT));
+                    
+                    //we will not write to the child 4 output pipe. This will be handled by the pager in the terminal via stdout.
+                    CHECK(close(fd4[PIPE_OUT]));
+                
+                    //execute the pager command
+                    if(execlp(pager, pager, '\0') == -1) {
+                        if(errno == ENOENT) {
+                            //no such file or directory. Either the user defined pager or less do not exist on system. try with more instead.
+                            pager = FALLBACK_PAGER_2;
+                            CHECK(execlp(pager, pager));
+                        } else {
+                            //something else went wrong, force an error.
+                            CHECK(-1);
+                        }
+                    }
+                    
+                    //we are done reading from child 3 input pipe
+                    CHECK(close(fd3[PIPE_IN]));
+
+                } else {
+                    //parent area
+                    
+                    //wait for child 4 process to finish.
+                    CHECK(wait(&status));
+                    CHECK(status);
+                    
+                    //we will not read or read from child (this will be done in the terminal by the pager instead. close both pipes.
+                    CHECK(close(fd4[PIPE_OUT]));
+                    CHECK(close(fd4[PIPE_IN]));
+                }
             }
         }
     }
 
+    //exit normally
     return 0;
 }
