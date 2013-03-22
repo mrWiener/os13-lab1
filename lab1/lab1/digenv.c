@@ -130,11 +130,14 @@ int main(int argc, const char * argv[], const char **envp) {
                 free(args);
             } else {
                 //no arguments, just pass input to output by doing a cat command (will echo input to output in this case)
-                CHECK(execlp("cat", "cat"));
+                CHECK(execlp("cat", "cat", '\0'));
             }
             
             //we are done writing to child 2 output pipe. close it.
             CHECK(close(fd2[PIPE_OUT]));
+            
+            //we are done reading from child 1 input pipe
+            CHECK(close(fd[PIPE_IN]));
         } else {
             //parent area. childpid now contains the process id of the child.
             
@@ -145,15 +148,53 @@ int main(int argc, const char * argv[], const char **envp) {
             //we will only be reading from child 2 so close child 2 output pipe.
             CHECK(close(fd2[PIPE_OUT]));
             
-            //read from child 2 input pipe.
-            char readbuffer[1024];
-            read(fd2[PIPE_IN], readbuffer, sizeof(readbuffer));
+            //variables to be used for child 3
+            int fd3[2];     //pipe for child 3
+            pid_t pid3;     //process id for child 3
             
-            //done reading. close child 2 input pipe.
-            CHECK(close(fd2[PIPE_IN]));
+            //setup pipe for child 3
+            CHECK(pipe(fd3));
             
-            //print result to stdout.
-            printf("%s", readbuffer);
+            //create child process 3
+            CHECK((pid3 = fork()));
+
+            if(pid3 == 0) {
+                //child area
+                
+                //child 3 will be reading from child 2 input pipe, so close child 3 input pipe
+                CHECK(close(fd3[PIPE_IN]));
+                
+                //make alias stdin -> child 2 input pipe. This closes stdin. When exec reads from stdin it will instead read from child 2 input pipe.
+                CHECK(dup2(fd2[PIPE_IN], STANDARD_INPUT));
+                
+                //make alias stdout -> output pipe. this closes stdout. When exec prints to stdout it instead prints to child 3 output pipe.
+                CHECK(dup2(fd3[PIPE_OUT], STANDARD_OUTPUT));
+                
+                //execute the sort command
+                execlp("sort", "sort", '\0');
+                
+                //we are done writing to child 3 output pipe. close it.
+                CHECK(close(fd3[PIPE_OUT]));
+                
+                //we are done reading from child 2 input pipe
+                CHECK(close(fd2[PIPE_IN]));
+            } else {
+                //parent area
+                
+                //wait for child 3 process to finish.
+                wait(&status);
+                CHECK(status);
+                
+                //read from child 3 input pipe.
+                char readbuffer[1024];
+                read(fd3[PIPE_IN], readbuffer, sizeof(readbuffer));
+                
+                //done reading. close child 3 input pipe.
+                CHECK(close(fd3[PIPE_IN]));
+                
+                //print result to stdout.
+                printf("%s", readbuffer);
+            }
         }
     }
 
