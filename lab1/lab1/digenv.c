@@ -245,15 +245,16 @@ int main(int argc, char ** argv, const char **envp) {
 
                     /* Execute the pager command. */
                     if(execlp(pager, pager, (char*)NULL) == -1) {
-
-                        /* En error occured during executing the program, check the error code. */
+                        /* An error occured during executing the pager, check the error code. */
                         if(errno == ENOENT) {
-                            /* No such file or directory. Either the user defined pager or less do not exist on system. Try with more instead. */
-                            pager = FALLBACK_PAGER_2;
-                            CHECK(execlp(pager, pager, (char*)NULL));
-                        } else {
-                            /* something else went wrong, force an error. */
-                            CHECK(-1);
+                            /* No such file or directory. Try with fallback pager FALLBACK_PAGER. */
+                            if(execlp(FALLBACK_PAGER, FALLBACK_PAGER, (char*)NULL) == -1) {
+                                /* An error occured during executing the fallback pager, check the error code. */
+                                if(errno == ENOENT) {
+                                    /* No such file or directory. Try with fallback pager FALLBACK_PAGER_2. */
+                                    CHECK(execlp(FALLBACK_PAGER_2, FALLBACK_PAGER_2, (char*)NULL));
+                                }
+                            }
                         }
                     }
                 } else {
