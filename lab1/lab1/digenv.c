@@ -1,9 +1,20 @@
-//
-//  digenv.c
-//  lab1
-//
-//  Created by Lucas Wiener & Mathias Lindblom on 3/21/13.
-//
+/*
+ *  digenv.c
+ *  lab1
+ *
+ *  Created by Lucas Wiener & Mathias Lindblom.
+ *
+ *  digenv offers a more sophisticated way of reading environment variables of a system.
+ *  The program first reads the variables and then performs a grep with given arguments. If no arguments
+ *  are given, the program instead pipes the data through the cat command. Then the data gets sorted by
+ *  executing the sort program, and last the data is presented with the pager specified by the "PAGER"
+ *  environment variable. If no such variable exists, the less program is chosen. If the execution of less
+ *  fails, the more program is chosen.
+ *
+ *  The program can be described as the system command: printenv | grep <args> | sort | PAGER
+ *
+ *  See grep manual for <args>.
+ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,6 +23,7 @@
 #include <string.h>
 #include <errno.h>
 
+/* Define some helper constants. */
 #define STANDARD_INPUT      0
 #define STANDARD_OUTPUT     1
 #define STANDARD_ERROR      2
@@ -29,224 +41,243 @@
 
 #define ENV_PAGER           "PAGER"
 
-//a macro to print better error messages and exit the process on error.
-//when parameter r == -1 the process gets killed and a error message is presented.
+/*
+A macro to print better error messages and exit the process on error.
+when parameter r == -1 the process gets killed and a error message is presented.
+*/
 #define CHECK(r) { if(r == -1) {perror(""); fprintf(stderr, "line: %d.\n", __LINE__); exit(1);} }
 
-//gets name of the pager to use. First tries to read env PAGER, and then falls back to less.
-//return: the value specified in env[PAGER]. Otherwise less.
+/*
+Gets name of the pager to use. First tries to read env PAGER, and then falls back to less.
+returns the value specified in env[PAGER]. Otherwise less.
+*/
 const char *getPager() {
-    //read which pager to use from users env.
-    const char *pager = getenv(ENV_PAGER);
+    /* Read which pager to use from users env. */
+    char *pager = getenv(ENV_PAGER);
     
-    //if no specified pager is set, less should be used.
+    /* If no specified pager is set, less should be used. */
     if(pager == NULL) {
         pager = FALLBACK_PAGER;
-        
-        //TODO: check if less exists on system? In that case use more.
     }
     
     return pager;
 }
 
-//program main entry point
+/* 
+Program main entry point. 
+The main method will perform all of the digenv logic.
+*/
 int main(int argc, char ** argv, const char **envp) {
-    //get the pager to use
-    const char *pager = getPager();
+    pid_t   pid;        /* Child process id. */
+    int     status;     /* Will be used when calling wait to read child exist status. */
+
+    int     fd_penv[2];     /* Array to hold pipe file descriptors for printenv-child. */
+    int     fd_grep[2];     /* Array to hold pipe file descriptors for grep-child. */
+    int     fd_sort[2];     /* Array to hold pipe file descriptors for sort-child. */
     
-    int     fd[2];      //pipe for child 1
-    pid_t   pid;        //child process id
-    int     status;     //will be used when calling wait
+    /* Setup pipe for printenv-child. */
+    CHECK(pipe(fd_penv));    
     
-    //setup pipe for child 1
-    CHECK(pipe(fd));
-    
-    //create child process 1
+    /* Create child process for printenv-child. */
     CHECK((pid = fork()))
     
     if(pid == 0) {
-        //child area.
+        /* printenv-child area */
         
-        //child will only write to pipe, so close input pipe
-        CHECK(close(fd[PIPE_IN]));
+        /* Child will only write to pipe, so close input pipe. */
+        CHECK(close(fd_penv[PIPE_IN]));
         
-        //make alias stdout -> output pipe. this closes stdout. When exec prints to stdout it instead prints to child 1 output pipe.
-        CHECK(dup2(fd[PIPE_OUT], STANDARD_OUTPUT));
+        /* Make alias stdout -> output pipe. this closes stdout. When exec prints to stdout it instead prints to child output pipe. */
+        CHECK(dup2(fd_penv[PIPE_OUT], STANDARD_OUTPUT));
         
-        //obtain env variables. this prints to stdout which in turns prints to output pipe.
+        /* Execute printenv with no arguments. this prints to stdout which in turns prints to child output pipe. */
         CHECK(execlp(COMMAND_PRINTENV, COMMAND_PRINTENV, (char*)NULL));
     } else {
-        //parent area. childpid now contains the process id of the child.
+        /* Parent area. Variable pid now contains the process id of the printenv-child. */
         
-        //parent will only read from pipe, so close output pipe
-        CHECK(close(fd[PIPE_OUT]));
+        /* Parent will only read from pipe, so close output pipe. */
+        CHECK(close(fd_penv[PIPE_OUT]));
         
-        //wait for child process 1 to finish.
+        /* wait for printenv-child process to terminate. */
         CHECK(wait(&status));
+
+        /* Check termination status. */
         if(!WIFEXITED(status)) {
-            CHECK(-1); //force error
+            /* Child process did not terminate by calling exit. Force error. */
+            CHECK(-1);
         } else {
-            //check the exit value
+            /* Child process did exit normally, check the exit value. */
             int exit_value = WEXITSTATUS(status);
 
             if(exit_value == 1) {
-                //printenv exited with an error. Most likely illegal arguments.
-                //just exit the program with the same value, since printenv will handle the error printing
+                /*
+                The printenv program exited with an error.
+                just exit the program with the same value, since printenv will handle the error printing.
+                */
                 return exit_value;
             }
         }
         
-        //variables to be used for child 2
-        int fd2[2];     //pipe for child 2
-        pid_t pid2;     //process id for child 2
+        /* Setup pipe for grep-child. */
+        CHECK(pipe(fd_grep));
         
-        //setup pipe for child 2
-        CHECK(pipe(fd2));
+        /* Create child process grep-child. */
+        CHECK((pid = fork()));
         
-        //create child process 2
-        CHECK((pid2 = fork()));
-        
-        if(pid2 == 0) {
-            //child area.
+        if(pid == 0) {
+            /* grep-child area. */
             
-            //child 2 will be reading from child 1 input pipe, so close child 2 input pipe
-            CHECK(close(fd2[PIPE_IN]));
+            /* grep-child will be reading from printenv-child input pipe, so close grep-child input pipe. */
+            CHECK(close(fd_grep[PIPE_IN]));
             
-            //make alias stdin -> child 1 input pipe. This closes stdin. When exec reads from stdin it will instead read from child 1 input pipe.
-            CHECK(dup2(fd[PIPE_IN], STANDARD_INPUT));
+            /* Make alias stdin -> printenv-child input pipe. This closes stdin. When exec reads from stdin it will instead read from printenv-child input pipe. */
+            CHECK(dup2(fd_penv[PIPE_IN], STANDARD_INPUT));
             
-            //make alias stdout -> output pipe. this closes stdout. When exec prints to stdout it instead prints to child 2 output pipe.
-            CHECK(dup2(fd2[PIPE_OUT], STANDARD_OUTPUT));
+            /* Make alias stdout -> output pipe of grep-child. This closes stdout. When exec prints to stdout it instead prints to grep-child output pipe. */
+            CHECK(dup2(fd_grep[PIPE_OUT], STANDARD_OUTPUT));
             
             if(argc > 1) {
-                //the user specified arguments, pass them to a grep command
+                /* The user specified arguments, pass them to a grep command. */
                
-                //change the first argument to COMMAND_GREP, since exec will overwrite this program anyway.
+                /* Change the first argument to COMMAND_GREP, since exec will overwrite this program anyway. */
                 argv[0] = COMMAND_GREP;
                 
-                //execute grep with the args
+                /* Execute grep with the args */
                 CHECK(execvp(COMMAND_GREP, argv));
             } else {
-                //no arguments, just pass input to output by doing a cat command (will echo input to output in this case)
+                /* No arguments, just pipe input to output by doing a cat command (will echo input to output in this case) */
                 CHECK(execlp(COMMAND_CAT, COMMAND_CAT, (char*)NULL));
             }
         } else {
-            //parent area. childpid now contains the process id of the child.
+            /* Parent area. The variable pid now contains the process id of grep-child. */
             
-            //we are done reading from child 1.
-            CHECK(close(fd[PIPE_IN]));
+            /* Program is done reading from printenv-child. */
+            CHECK(close(fd_penv[PIPE_IN]));
             
-            //we will only be reading from child 2 so close child 2 output pipe.
-            CHECK(close(fd2[PIPE_OUT]));
+            /* Parent will only be reading from grep-child so close output pipe. */
+            CHECK(close(fd_grep[PIPE_OUT]));
             
-            //wait for child 2 process to finish.
+            /* Wait for grep-child process to terminate. */
             CHECK(wait(&status));
+
+            /* Check termination status. */
             if(!WIFEXITED(status)) {
-                CHECK(-1); //force error
+                /* Child process did not terminate by calling exit. Force error. */
+                CHECK(-1);
             } else {
-                //check the exit value
+                /* Child process did exit normally, check the exit value. */
                 int exit_value = WEXITSTATUS(status);
-                int limit = 0; //cat exits with value > 0 on error.
+                int limit = 0; /* cat exits with value > 0 on error. */
 
                 if(argc > 1) {
-                    limit = 1; //if the program got arguments, grep is executed instead of cat. grep exits with value > 1 on error.
+                    limit = 1; /* If the program got arguments, grep is executed instead of cat. grep exits with value > 1 on error. */
                 }
 
                 if(exit_value > limit) {
-                    //grep/cat exited with an error. Most likely illegal arguments.
-                    //just exit the program with the same value as grep/cat, since grep/cat will handle the error printing
+                    /*
+                    grep/cat exited with an error. Most likely illegal arguments.
+                    Just exit the program with the same value as grep/cat, since grep/cat will handle the error printing.
+                    */
                     return exit_value;
                 }
             }
             
-            //variables to be used for child 3
-            int fd3[2];     //pipe for child 3
-            pid_t pid3;     //process id for child 3
+            /* Setup pipe for sort-child. */
+            CHECK(pipe(fd_sort));
             
-            //setup pipe for child 3
-            CHECK(pipe(fd3));
-            
-            //create child process 3
-            CHECK((pid3 = fork()));
+            /* Create child process sort-child. */
+            CHECK((pid = fork()));
 
-            if(pid3 == 0) {
-                //child area
+            if(pid == 0) {
+                /* sort-child area */
                 
-                //child 3 will be reading from child 2 input pipe, so close child 3 input pipe
-                CHECK(close(fd3[PIPE_IN]));
+                /* sort-child will be reading from grep-child input pipe, so close sort-child input pipe. */
+                CHECK(close(fd_sort[PIPE_IN]));
                 
-                //make alias stdin -> child 2 input pipe. This closes stdin. When exec reads from stdin it will instead read from child 2 input pipe.
-                CHECK(dup2(fd2[PIPE_IN], STANDARD_INPUT));
+                /* Make alias stdin -> grep-child input pipe. This closes stdin. When exec reads from stdin it will instead read from grep-child input pipe. */
+                CHECK(dup2(fd_grep[PIPE_IN], STANDARD_INPUT));
                 
-                //make alias stdout -> output pipe. this closes stdout. When exec prints to stdout it instead prints to child 3 output pipe.
-                CHECK(dup2(fd3[PIPE_OUT], STANDARD_OUTPUT));
+                /* Make alias stdout -> sort-child output pipe. this closes stdout. When exec prints to stdout it instead prints to sort-child output pipe. */
+                CHECK(dup2(fd_sort[PIPE_OUT], STANDARD_OUTPUT));
                 
-                //execute the sort command
+                /* Execute the sort command. */
                 execlp(COMMAND_SORT, COMMAND_SORT, (char*)NULL);
             } else {
-                //parent area
+                /* Parent area. */
                 
-                //we are done reading from child 2
-                CHECK(close(fd2[PIPE_IN]));
+                /* Program is done reading from grep-child. */
+                CHECK(close(fd_grep[PIPE_IN]));
                 
-                //we will only be reading from child 3 so close child 3 output pipe.
-                CHECK(close(fd3[PIPE_OUT]));
+                /* Parent will only be reading from sort-child so close output pipe. */
+                CHECK(close(fd_sort[PIPE_OUT]));
                 
-                //wait for child 3 process to finish.
+                /* Wait for sort-child process to terminate. */
                 CHECK(wait(&status));
+
+                /* Check termination status. */
                 if(!WIFEXITED(status)) {
-                    CHECK(-1); //force error
+                    /* Child process did not terminate by calling exit. Force error. */
+                    CHECK(-1);
                 } else {
-                    //check the exit value
+                    /* Child process did exit normally, check the exit value. */
                     int exit_value = WEXITSTATUS(status);
 
                     if(exit_value > 1) {
-                        //sort exited with an error.
-                        //just exit the program with the same value as sort, since grep will handle the error printing
+                        /* 
+                        sort exited with an error.
+                        Just exit the program with the same value as sort, since sort will handle the error printing.
+                        */
                         return exit_value;
                     }
                 }
                 
-                //variables to be used for child 4
-                pid_t pid4;     //process id for child 4
+                /* Create child process pager-child. */
+                CHECK((pid = fork()));
                 
-                //create child process 4
-                CHECK((pid4 = fork()));
-                
-                if(pid4 == 0) {
-                    //child area
+                if(pid == 0) {
+                    /* pager-child area. */
                     
-                    //make alias stdin -> child 3 input pipe. This closes stdin. When exec reads from stdin it will instead read from child 3 input pipe.
-                    CHECK(dup2(fd3[PIPE_IN], STANDARD_INPUT));
+                    /* Make alias stdin -> sort-child input pipe. This closes stdin. When exec reads from stdin it will instead read from sort-child input pipe. */
+                    CHECK(dup2(fd_sort[PIPE_IN], STANDARD_INPUT));
                 
-                    //execute the pager command
+                    /* Get the pager to use. */
+                    const char *pager = getPager();
+
+                    /* Execute the pager command. */
                     if(execlp(pager, pager, (char*)NULL) == -1) {
+
+                        /* En error occured during executing the program, check the error code. */
                         if(errno == ENOENT) {
-                            //no such file or directory. Either the user defined pager or less do not exist on system. try with more instead.
+                            /* No such file or directory. Either the user defined pager or less do not exist on system. Try with more instead. */
                             pager = FALLBACK_PAGER_2;
                             CHECK(execlp(pager, pager, (char*)NULL));
                         } else {
-                            //something else went wrong, force an error.
+                            /* something else went wrong, force an error. */
                             CHECK(-1);
                         }
                     }
                 } else {
-                    //parent area
+                    /* Parent area */
                     
-                    //we are done with reading from child 3
-                    CHECK(close(fd3[PIPE_IN]));
+                    /* Program is done with reading from sort-child. */
+                    CHECK(close(fd_sort[PIPE_IN]));
                     
-                    //wait for child 4 process to finish.
+                    /* Wait for pager-child process to terminate. */
                     CHECK(wait(&status));
+
+                    /* Check termination status. */
                     if(!WIFEXITED(status)) {
-                        CHECK(-1); //force error
+                        /* Child process did not terminate by calling exit. Force error. */
+                        CHECK(-1);
                     } else {
-                        //check the exit value
+                        /* Child process did exit normally, check the exit value. */
                         int exit_value = WEXITSTATUS(status);
 
                         if(exit_value != 0) {
-                            //pager exited with an error.
-                            //just exit the program with the same value as pager, since pager will handle the error printing
+                            /* 
+                            pager exited with an error.
+                            Just exit the program with the same value as pager, since pager will handle the error printing.
+                            */
                             return exit_value;
                         }
                     }
@@ -255,6 +286,6 @@ int main(int argc, char ** argv, const char **envp) {
         }
     }
 
-    //exit normally
+    /* Exit normally. */
     return 0;
 }
