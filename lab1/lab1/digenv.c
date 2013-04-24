@@ -74,7 +74,7 @@ int main(int argc, char ** argv, const char **envp) {
         CHECK(dup2(fd[PIPE_OUT], STANDARD_OUTPUT));
         
         //obtain env variables. this prints to stdout which in turns prints to output pipe.
-        CHECK(execlp(COMMAND_PRINTENV, COMMAND_PRINTENV, '\0'));
+        CHECK(execlp(COMMAND_PRINTENV, COMMAND_PRINTENV, (char*)NULL));
     } else {
         //parent area. childpid now contains the process id of the child.
         
@@ -119,7 +119,7 @@ int main(int argc, char ** argv, const char **envp) {
                 CHECK(execvp(COMMAND_GREP, argv));
             } else {
                 //no arguments, just pass input to output by doing a cat command (will echo input to output in this case)
-                CHECK(execlp(COMMAND_CAT, COMMAND_CAT, '\0'));
+                CHECK(execlp(COMMAND_CAT, COMMAND_CAT, (char*)NULL));
             }
         } else {
             //parent area. childpid now contains the process id of the child.
@@ -159,7 +159,7 @@ int main(int argc, char ** argv, const char **envp) {
                 CHECK(dup2(fd3[PIPE_OUT], STANDARD_OUTPUT));
                 
                 //execute the sort command
-                execlp(COMMAND_SORT, COMMAND_SORT, '\0');
+                execlp(COMMAND_SORT, COMMAND_SORT, (char*)NULL);
             } else {
                 //parent area
                 
@@ -188,11 +188,11 @@ int main(int argc, char ** argv, const char **envp) {
                     CHECK(dup2(fd3[PIPE_IN], STANDARD_INPUT));
                 
                     //execute the pager command
-                    if(execlp(pager, pager, '\0') == -1) {
+                    if(execlp(pager, pager, (char*)NULL) == -1) {
                         if(errno == ENOENT) {
                             //no such file or directory. Either the user defined pager or less do not exist on system. try with more instead.
                             pager = FALLBACK_PAGER_2;
-                            CHECK(execlp(pager, pager, '\0'));
+                            CHECK(execlp(pager, pager, (char*)NULL));
                         } else {
                             //something else went wrong, force an error.
                             CHECK(-1);
