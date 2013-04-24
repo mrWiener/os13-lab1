@@ -85,6 +85,15 @@ int main(int argc, char ** argv, const char **envp) {
         CHECK(wait(&status));
         if(!WIFEXITED(status)) {
             CHECK(-1); //force error
+        } else {
+            //check the exit value
+            int exit_value = WEXITSTATUS(status);
+
+            if(exit_value == 1) {
+                //printenv exited with an error. Most likely illegal arguments.
+                //just exit the program with the same value, since printenv will handle the error printing
+                return exit_value;
+            }
         }
         
         //variables to be used for child 2
@@ -134,6 +143,20 @@ int main(int argc, char ** argv, const char **envp) {
             CHECK(wait(&status));
             if(!WIFEXITED(status)) {
                 CHECK(-1); //force error
+            } else {
+                //check the exit value
+                int exit_value = WEXITSTATUS(status);
+                int limit = 0; //cat exits with value > 0 on error.
+
+                if(argc > 1) {
+                    limit = 1; //if the program got arguments, grep is executed instead of cat. grep exits with value > 1 on error.
+                }
+
+                if(exit_value > limit) {
+                    //grep/cat exited with an error. Most likely illegal arguments.
+                    //just exit the program with the same value as grep/cat, since grep/cat will handle the error printing
+                    return exit_value;
+                }
             }
             
             //variables to be used for child 3
@@ -173,6 +196,15 @@ int main(int argc, char ** argv, const char **envp) {
                 CHECK(wait(&status));
                 if(!WIFEXITED(status)) {
                     CHECK(-1); //force error
+                } else {
+                    //check the exit value
+                    int exit_value = WEXITSTATUS(status);
+
+                    if(exit_value > 1) {
+                        //sort exited with an error.
+                        //just exit the program with the same value as sort, since grep will handle the error printing
+                        return exit_value;
+                    }
                 }
                 
                 //variables to be used for child 4
@@ -208,6 +240,15 @@ int main(int argc, char ** argv, const char **envp) {
                     CHECK(wait(&status));
                     if(!WIFEXITED(status)) {
                         CHECK(-1); //force error
+                    } else {
+                        //check the exit value
+                        int exit_value = WEXITSTATUS(status);
+
+                        if(exit_value != 0) {
+                            //pager exited with an error.
+                            //just exit the program with the same value as pager, since pager will handle the error printing
+                            return exit_value;
+                        }
                     }
                 }
             }
