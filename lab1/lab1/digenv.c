@@ -14,6 +14,11 @@
  *  The program can be described as the system command: printenv | grep <args> | sort | PAGER
  *
  *  See grep manual for <args>.
+ *
+ *  If no arguments are given, the program will execute the system command: printenv | cat | sort | PAGER 
+ * 
+ *  The program will exit with status 0 on success, or > 0 on error. 
+ *  If a exeuted subprogram fails, digenv will exit with the same value as the failed program.
  */
 
 
@@ -136,8 +141,8 @@ int main(int argc, char ** argv, const char **envp) {
             CHECK(dup2(fd_grep[PIPE_OUT], STANDARD_OUTPUT));
             
             if(argc > 1) {
-                /* The user specified arguments, pass them to a grep command. */
-               
+                /* The user specified arguments, pass them to the grep program. */
+            
                 /* Change the first argument to COMMAND_GREP, since exec will overwrite this program anyway. */
                 argv[0] = COMMAND_GREP;
                 
