@@ -53,22 +53,6 @@ when parameter r == -1 the process gets killed and a error message is presented.
 */
 #define CHECK(r) { if(r == -1) {perror(""); fprintf(stderr, "line: %d.\n", __LINE__); exit(1);} }
 
-/*
-Gets name of the pager to use. First tries to read env PAGER, and then falls back to less.
-returns the value specified in env[PAGER]. Otherwise less.
-*/
-const char *getPager() {
-    /* Read which pager to use from users env. */
-    char *pager = getenv(ENV_PAGER);
-    
-    /* If no specified pager is set, less should be used. */
-    if(pager == NULL) {
-        pager = FALLBACK_PAGER;
-    }
-    
-    return pager;
-}
-
 /* 
 Program main entry point. 
 The main method will perform all of the digenv logic.
@@ -109,13 +93,16 @@ int main(int argc, char ** argv, const char **envp) {
 
         /* Check termination status. */
         if(!WIFEXITED(status)) {
+            
             /* Child process did not terminate by calling exit. Force error. */
             CHECK(-1);
         } else {
+            
             /* Child process did exit normally, check the exit value. */
             int exit_value = WEXITSTATUS(status);
 
             if(exit_value == 1) {
+                
                 /* The printenv program exited with an error. just exit 
                  * the program with the same value, since printenv will handle the error printing. */
                 return exit_value;
@@ -149,6 +136,7 @@ int main(int argc, char ** argv, const char **envp) {
                 /* Execute grep with the args */
                 CHECK(execvp(COMMAND_GREP, argv));
             } else {
+                
                 /* No arguments, just pipe input to output by doing a cat command (will echo input to output in this case) */
                 CHECK(execlp(COMMAND_CAT, COMMAND_CAT, (char*)NULL));
             }
@@ -166,22 +154,25 @@ int main(int argc, char ** argv, const char **envp) {
 
             /* Check termination status. */
             if(!WIFEXITED(status)) {
+                
                 /* Child process did not terminate by calling exit. Force error. */
                 CHECK(-1);
             } else {
+                
                 /* Child process did exit normally, check the exit value. */
                 int exit_value = WEXITSTATUS(status);
                 int limit = 0; /* cat exits with value > 0 on error. */
 
                 if(argc > 1) {
-                    limit = 1; /* If the program got arguments, grep is executed instead of cat. grep exits with value > 1 on error. */
+                    
+                    /* If the program got arguments, grep is executed instead of cat. grep exits with value > 1 on error. */
+                    limit = 1;
                 }
 
                 if(exit_value > limit) {
-                    /*
-                    grep/cat exited with an error. Most likely illegal arguments.
-                    Just exit the program with the same value as grep/cat, since grep/cat will handle the error printing.
-                    */
+                    
+                    /* grep/cat exited with an error. Most likely illegal arguments.
+                     * Just exit the program with the same value as grep/cat, since grep/cat will handle the error printing. */
                     return exit_value;
                 }
             }
@@ -220,13 +211,16 @@ int main(int argc, char ** argv, const char **envp) {
 
                 /* Check termination status. */
                 if(!WIFEXITED(status)) {
+                    
                     /* Child process did not terminate by calling exit. Force error. */
                     CHECK(-1);
                 } else {
+                    
                     /* Child process did exit normally, check the exit value. */
                     int exit_value = WEXITSTATUS(status);
 
                     if(exit_value > 1) {
+                        
                         /* sort exited with an error. Just exit the program with the same value as sort, since sort will handle the error printing. */
                         return exit_value;
                     }
@@ -239,23 +233,19 @@ int main(int argc, char ** argv, const char **envp) {
                     /* pager-child area. */
                     
                     /* Get the pager to use. */
-                    const char *pager = getPager();
+                    const char *pager = getenv(ENV_PAGER);
 
                     /* Duplicate STANDARD_INPUT to sort-child input pipe. When exec reads from STANDARD_INPUT it will instead read from sort-child input pipe. */
                     CHECK(dup2(fd_sort[PIPE_IN], STANDARD_INPUT));
                 
-                    /* Execute the pager command. */
-                    if(execlp(pager, pager, (char*)NULL) == -1) {
-                        /* An error occured during executing the pager, check the error code. */
-                        if(errno == ENOENT) {
-                            /* No such file or directory. Try with fallback pager FALLBACK_PAGER. */
-                            if(execlp(FALLBACK_PAGER, FALLBACK_PAGER, (char*)NULL) == -1) {
-                                /* An error occured during executing the fallback pager, check the error code. */
-                                if(errno == ENOENT) {
-                                    /* No such file or directory. Try with fallback pager FALLBACK_PAGER_2. */
-                                    CHECK(execlp(FALLBACK_PAGER_2, FALLBACK_PAGER_2, (char*)NULL));
-                                }
-                            }
+                    /* If there is an pager specified in env, try to execute it. If the pager isn't set or it fails to execute, try with fallback pager. */
+                    if(pager == NULL || execlp(pager, pager, (char*)NULL) == -1) {
+
+                        /* The pager didn't get executed. Try with fallback pager FALLBACK_PAGER. */
+                        if(execlp(FALLBACK_PAGER, FALLBACK_PAGER, (char*)NULL) == -1) {
+
+                            /* An error occured during executing the fallback pager. Try with fallback pager FALLBACK_PAGER_2. */
+                            CHECK(execlp(FALLBACK_PAGER_2, FALLBACK_PAGER_2, (char*)NULL));
                         }
                     }
                 } else {
@@ -269,17 +259,18 @@ int main(int argc, char ** argv, const char **envp) {
 
                     /* Check termination status. */
                     if(!WIFEXITED(status)) {
+                        
                         /* Child process did not terminate by calling exit. Force error. */
                         CHECK(-1);
                     } else {
+                        
                         /* Child process did exit normally, check the exit value. */
                         int exit_value = WEXITSTATUS(status);
 
                         if(exit_value != 0) {
-                            /* 
-                            pager exited with an error.
-                            Just exit the program with the same value as pager, since pager will handle the error printing.
-                            */
+                            
+                            /* pager exited with an error. Just exit the program with the same value as pager, 
+                             * since pager will handle the error printing. */
                             return exit_value;
                         }
                     }
