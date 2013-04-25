@@ -16,12 +16,13 @@
  *  See grep manual for <args>.
  */
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <sys/types.h>
-#include <string.h>
-#include <errno.h>
+
+#include <unistd.h>	/* Needed for process execution and such. */
+#include <stdio.h>	/* Needed for io functions as fprintf. */
+#include <stdlib.h>	/* Needed for exit function and NULL macro. */
+#include <sys/types.h>	/* Needed for the pid_t type. */
+#include <errno.h>	/* Needed for the error handling functions and macros. */
+#include <wait.h>	/* Needed for the wait function and status checking macros. */
 
 /* Define some helper constants. */
 #define STANDARD_INPUT      0
@@ -237,12 +238,12 @@ int main(int argc, char ** argv, const char **envp) {
                 if(pid == 0) {
                     /* pager-child area. */
                     
+		    /* Get the pager to use. */
+                    const char *pager = getPager();
+
                     /* Make alias stdin -> sort-child input pipe. This closes stdin. When exec reads from stdin it will instead read from sort-child input pipe. */
                     CHECK(dup2(fd_sort[PIPE_IN], STANDARD_INPUT));
                 
-                    /* Get the pager to use. */
-                    const char *pager = getPager();
-
                     /* Execute the pager command. */
                     if(execlp(pager, pager, (char*)NULL) == -1) {
                         /* An error occured during executing the pager, check the error code. */
