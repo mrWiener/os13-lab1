@@ -93,7 +93,7 @@ int main(int argc, char ** argv, const char **envp) {
         /* Child will only write to pipe, so close input pipe. */
         CHECK(close(fd_penv[PIPE_IN]));
         
-        /* Make alias stdout -> output pipe. this closes stdout. When exec prints to stdout it instead prints to child output pipe. */
+        /* Duplicate STANDARD_OUTPUT to printenv-child output pipe. When exec prints to STANDARD_OUTPUT it will instead print to printenv-child output pipe. */
         CHECK(dup2(fd_penv[PIPE_OUT], STANDARD_OUTPUT));
         
         /* Execute printenv with no arguments. this prints to stdout which in turns prints to child output pipe. */
