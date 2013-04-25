@@ -17,12 +17,12 @@
  */
 
 
-#include <unistd.h>	/* Needed for process execution and such. */
-#include <stdio.h>	/* Needed for io functions as fprintf. */
-#include <stdlib.h>	/* Needed for exit function and NULL macro. */
-#include <sys/types.h>	/* Needed for the pid_t type. */
-#include <errno.h>	/* Needed for the error handling functions and macros. */
-#include <wait.h>	/* Needed for the wait function and status checking macros. */
+#include <unistd.h>     /* Needed for process execution and such. */
+#include <stdio.h>      /* Needed for io functions as fprintf. */
+#include <stdlib.h>     /* Needed for exit function and NULL macro. */
+#include <sys/types.h>  /* Needed for the pid_t type. */
+#include <errno.h>      /* Needed for the error handling functions and macros. */
+#include <wait.h>       /* Needed for the wait function and status checking macros. */
 
 /* Define some helper constants. */
 #define STANDARD_INPUT      0
@@ -69,8 +69,8 @@ Program main entry point.
 The main method will perform all of the digenv logic.
 */
 int main(int argc, char ** argv, const char **envp) {
-    pid_t   pid;        /* Child process id. */
-    int     status;     /* Will be used when calling wait to read child exist status. */
+    pid_t   pid;            /* Child process id. */
+    int     status;         /* Will be used when calling wait to read child exist status. */
 
     int     fd_penv[2];     /* Array to hold pipe file descriptors for printenv-child. */
     int     fd_grep[2];     /* Array to hold pipe file descriptors for grep-child. */
@@ -111,10 +111,8 @@ int main(int argc, char ** argv, const char **envp) {
             int exit_value = WEXITSTATUS(status);
 
             if(exit_value == 1) {
-                /*
-                The printenv program exited with an error.
-                just exit the program with the same value, since printenv will handle the error printing.
-                */
+                /* The printenv program exited with an error. just exit 
+                 * the program with the same value, since printenv will handle the error printing. */
                 return exit_value;
             }
         }
@@ -131,10 +129,10 @@ int main(int argc, char ** argv, const char **envp) {
             /* grep-child will be reading from printenv-child input pipe, so close grep-child input pipe. */
             CHECK(close(fd_grep[PIPE_IN]));
             
-            /* Make alias stdin -> printenv-child input pipe. This closes stdin. When exec reads from stdin it will instead read from printenv-child input pipe. */
+            /* Duplicate STANDARD_INPUT to printenv-child input pipe. When exec reads from STANDARD_INPUT it will instead read from printenv-child input pipe. */
             CHECK(dup2(fd_penv[PIPE_IN], STANDARD_INPUT));
             
-            /* Make alias stdout -> output pipe of grep-child. This closes stdout. When exec prints to stdout it instead prints to grep-child output pipe. */
+            /* Duplicate STANDARD_OUTPUT to grep-child output pipe. When exec prints to STANDARD_OUTPUT it will instead print to grep-child output pipe. */
             CHECK(dup2(fd_grep[PIPE_OUT], STANDARD_OUTPUT));
             
             if(argc > 1) {
@@ -195,10 +193,10 @@ int main(int argc, char ** argv, const char **envp) {
                 /* sort-child will be reading from grep-child input pipe, so close sort-child input pipe. */
                 CHECK(close(fd_sort[PIPE_IN]));
                 
-                /* Make alias stdin -> grep-child input pipe. This closes stdin. When exec reads from stdin it will instead read from grep-child input pipe. */
+                /* Duplicate STANDARD_INPUT to grep-child input pipe. When exec reads from STANDARD_INPUT it will instead read from grep-child input pipe. */
                 CHECK(dup2(fd_grep[PIPE_IN], STANDARD_INPUT));
                 
-                /* Make alias stdout -> sort-child output pipe. this closes stdout. When exec prints to stdout it instead prints to sort-child output pipe. */
+                /* Duplicate STANDARD_OUTPUT to sort-child output pipe. When exec prints to STANDARD_OUTPUT it will instead print to sort-child output pipe. */
                 CHECK(dup2(fd_sort[PIPE_OUT], STANDARD_OUTPUT));
                 
                 /* Execute the sort command. */
@@ -224,10 +222,7 @@ int main(int argc, char ** argv, const char **envp) {
                     int exit_value = WEXITSTATUS(status);
 
                     if(exit_value > 1) {
-                        /* 
-                        sort exited with an error.
-                        Just exit the program with the same value as sort, since sort will handle the error printing.
-                        */
+                        /* sort exited with an error. Just exit the program with the same value as sort, since sort will handle the error printing. */
                         return exit_value;
                     }
                 }
@@ -238,10 +233,10 @@ int main(int argc, char ** argv, const char **envp) {
                 if(pid == 0) {
                     /* pager-child area. */
                     
-		    /* Get the pager to use. */
+                    /* Get the pager to use. */
                     const char *pager = getPager();
 
-                    /* Make alias stdin -> sort-child input pipe. This closes stdin. When exec reads from stdin it will instead read from sort-child input pipe. */
+                    /* Duplicate STANDARD_INPUT to sort-child input pipe. When exec reads from STANDARD_INPUT it will instead read from sort-child input pipe. */
                     CHECK(dup2(fd_sort[PIPE_IN], STANDARD_INPUT));
                 
                     /* Execute the pager command. */
